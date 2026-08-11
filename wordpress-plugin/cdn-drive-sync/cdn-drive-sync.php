@@ -2,7 +2,7 @@
 /**
  * Plugin Name: CDN Drive Sync
  * Description: Syncs WordPress media files and generated image sizes to CDN Drive, then rewrites media URLs to the BunnyCDN hostname.
- * Version: 1.2.0
+ * Version: 1.5.0
  * Author: Pronelt
  * Requires at least: 6.0
  * Requires PHP: 8.0
@@ -28,6 +28,7 @@ final class CDN_Drive_Sync
         add_action('admin_menu', [self::class, 'adminMenu']);
         add_action('admin_notices', [self::class, 'adminNotice']);
         add_action('admin_init', [self::class, 'registerSettings']);
+        add_action('admin_post_cdn_drive_check_updates', [self::class, 'handleCheckUpdates']);
         add_action('admin_post_cdn_drive_test_connection', [self::class, 'handleTestConnection']);
         add_action('admin_post_cdn_drive_test_upload', [self::class, 'handleTestUpload']);
         add_action('admin_post_cdn_drive_sync_attachment', [self::class, 'handleManualSync']);
@@ -330,6 +331,15 @@ final class CDN_Drive_Sync
             </form>
 
             <hr>
+            <h2>Update Check</h2>
+            <p>GitHub Release の最新版を再取得して、WordPress の更新通知を即時に確認します。</p>
+            <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="margin-bottom: 1em;">
+                <?php wp_nonce_field('cdn_drive_check_updates'); ?>
+                <input type="hidden" name="action" value="cdn_drive_check_updates">
+                <?php submit_button('更新を確認', 'secondary', 'submit', false); ?>
+            </form>
+
+            <hr>
             <h2>Connection Test</h2>
             <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="margin-bottom: 1em;">
                 <?php wp_nonce_field('cdn_drive_test_connection'); ?>
@@ -379,6 +389,37 @@ final class CDN_Drive_Sync
             ? 'Connection failed: ' . $result->get_error_message()
             : 'Connection OK: ' . ($result['service'] ?? 'CDN Drive External API');
         self::redirectWithNotice($message, 30);
+    }
+
+    public static function handleCheckUpdates(): void
+    {
+        if (!current_user_can('manage_options')) {
+            wp_die('Forbidden', 403);
+        }
+        check_admin_referer('cdn_drive_check_updates');
+
+        delete_site_transient('update_plugins');
+        delete_site_transient('cdn_drive_sync_latest_release');
+        if (function_exists('wp_clean_plugins_cache')) {
+            wp_clean_plugins_cache(true);
+        }
+        if (function_exists('wp_update_plugins')) {
+            wp_update_plugins();
+        }
+
+        $updates = get_site_transient('update_plugins');
+        $pluginFile = plugin_basename(__FILE__);
+        $availableVersion = '';
+        if (is_object($updates) && !empty($updates->response[$pluginFile]->new_version)) {
+            $availableVersion = (string)$updates->response[$pluginFile]->new_version;
+        }
+
+        if ($availableVersion !== '') {
+            self::redirectWithNotice('更新を確認しました。新しいバージョン ' . $availableVersion . ' が利用できます。', 60);
+            return;
+        }
+
+        self::redirectWithNotice('更新を確認しました。利用可能な更新はありません。', 30);
     }
 
     public static function handleTestUpload(): void
