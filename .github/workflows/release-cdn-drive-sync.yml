@@ -4,11 +4,6 @@ on:
   push:
     branches:
       - main
-    paths:
-      - 'wordpress-plugin/cdn-drive-sync/**'
-      - '.github/workflows/release-cdn-drive-sync.yml'
-    paths-ignore:
-      - 'wordpress-plugin/cdn-drive-sync/cdn-drive-sync-update.json'
   workflow_dispatch:
 
 permissions:
@@ -24,7 +19,21 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Detect manifest-only push
+        id: changes
+        shell: bash
+        run: |
+          echo "manifest_only=false" >> "$GITHUB_OUTPUT"
+          if [ "${{ github.event_name }}" = "push" ] && [ -n "${{ github.event.before }}" ] && [ "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]; then
+            CHANGED_FILES=$(git diff --name-only "${{ github.event.before }}" "${{ github.sha }}")
+            FILE_COUNT=$(printf '%s\n' "$CHANGED_FILES" | sed '/^$/d' | wc -l | tr -d ' ')
+            if [ "$FILE_COUNT" = "1" ] && printf '%s\n' "$CHANGED_FILES" | grep -qx 'wordpress-plugin/cdn-drive-sync/cdn-drive-sync-update.json'; then
+              echo "manifest_only=true" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+
       - name: Read plugin version
+        if: steps.changes.outputs.manifest_only != 'true'
         id: version
         run: |
           VERSION=$(php -r '$content = file_get_contents("wordpress-plugin/cdn-drive-sync/cdn-drive-sync.php"); if (preg_match("/^\\s*\\*\\s*Version:\\s*(.+)$/m", $content, $matches)) { echo trim($matches[1]); }')
@@ -36,6 +45,7 @@ jobs:
           echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Prepare package
+        if: steps.changes.outputs.manifest_only != 'true'
         run: |
           set -e
           rm -rf dist
@@ -55,6 +65,7 @@ jobs:
           (cd dist/staging && zip -qr ../cdn-drive-sync.zip cdn-drive-sync)
 
       - name: Publish release
+        if: steps.changes.outputs.manifest_only != 'true'
         uses: softprops/action-gh-release@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -67,7 +78,7 @@ jobs:
           make_latest: true
 
       - name: Commit manifest back to main
-        if: github.ref == 'refs/heads/main'
+        if: steps.changes.outputs.manifest_only != 'true' && github.ref == 'refs/heads/main'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -77,4 +88,4 @@ jobs:
             exit 0
           fi
           git commit -m "Update CDN Drive Sync manifest [skip ci]"
-          git push
+          git push origin HEAD:${GITHUB_REF_NAME}
