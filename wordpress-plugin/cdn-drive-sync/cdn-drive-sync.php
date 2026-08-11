@@ -1,11 +1,14 @@
 <?php
 /**
  * Plugin Name: CDN Drive Sync
+ * Plugin URI: https://github.com/tomosan078/rental-serv-bunny-cdndrive
  * Description: WordPressのメディアファイルと生成された画像サイズをCDNドライブに同期し、メディアのURLをBunnyCDNのホスト名に書き換えます。
- * Version: 1.5.9
+ * Version: 1.6.0
  * Author: Pronelt
+ * Author URI: profile.pr0.jp
  * Requires at least: 6.0
  * Requires PHP: 8.0
+ * Licence: MIT
  */
 
 if (!defined('ABSPATH')) {
