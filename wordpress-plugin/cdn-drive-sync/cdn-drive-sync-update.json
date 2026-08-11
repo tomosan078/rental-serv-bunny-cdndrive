@@ -2,7 +2,7 @@
   "version": "1.5.9",
   "package": "https://github.com/tomosan078/rental-serv-bunny-cdndrive/releases/latest/download/cdn-drive-sync.zip",
   "requires": "6.0",
-  "tested": "6.0",
+  "tested": "7.0.3",
   "homepage": "https://github.com/tomosan078/rental-serv-bunny-cdndrive",
   "description": "レンタルサーバーとBunnyCDNを連携させる、CDN 配信プラグインです。",
   "changelog": "ホームページよりGitHub Release を確認してください。"
