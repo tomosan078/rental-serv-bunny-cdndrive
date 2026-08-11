@@ -2,7 +2,7 @@
 /**
  * Plugin Name: CDN Drive Sync
  * Description: Syncs WordPress media files and generated image sizes to CDN Drive, then rewrites media URLs to the BunnyCDN hostname.
- * Version: 1.6.1
+ * Version: 1.5.8
  * Author: Pronelt
  * Requires at least: 6.0
  * Requires PHP: 8.0
@@ -410,7 +410,7 @@ final class CDN_Drive_Sync
         }
 
         $lookupError = '';
-        $manifest = self::latestUpdateManifest($lookupError);
+        $manifest = self::latestUpdateManifest($lookupError, true);
         if ($manifest === null && $lookupError !== '') {
             self::redirectWithNotice('更新確認に失敗しました: ' . $lookupError, 60);
             return;
@@ -419,10 +419,11 @@ final class CDN_Drive_Sync
         $updates = get_site_transient('update_plugins');
         $pluginFile = plugin_basename(__FILE__);
         $availableVersion = '';
+        $manifestVersion = is_array($manifest) ? trim((string)($manifest['version'] ?? '')) : '';
         if (is_object($updates) && !empty($updates->response[$pluginFile]->new_version)) {
             $availableVersion = (string)$updates->response[$pluginFile]->new_version;
-        } elseif (is_array($manifest) && !empty($manifest['version']) && version_compare((string)$manifest['version'], self::pluginVersion(), '>')) {
-            $availableVersion = (string)$manifest['version'];
+        } elseif ($manifestVersion !== '' && version_compare($manifestVersion, self::pluginVersion(), '>')) {
+            $availableVersion = $manifestVersion;
         }
 
         if ($availableVersion !== '') {
@@ -430,7 +431,9 @@ final class CDN_Drive_Sync
             return;
         }
 
-        self::redirectWithNotice('更新を確認しました。利用可能な更新はありません。', 30);
+        $currentVersion = self::pluginVersion();
+        $detail = $manifestVersion !== '' ? ' 現在 ' . $currentVersion . ' / manifest ' . $manifestVersion . '.' : ' 現在 ' . $currentVersion . '.';
+        self::redirectWithNotice('更新を確認しました。利用可能な更新はありません。' . $detail, 30);
     }
 
     public static function handleTestUpload(): void
@@ -1014,25 +1017,33 @@ final class CDN_Drive_Sync
         }
     }
 
-    private static function latestUpdateManifest(?string &$errorMessage = null): ?array
+    private static function latestUpdateManifest(?string &$errorMessage = null, bool $bypassCache = false): ?array
     {
         $cacheKey = 'cdn_drive_sync_latest_manifest';
-        $cached = get_site_transient($cacheKey);
-        if (is_array($cached) && isset($cached['version'])) {
-            $errorMessage = '';
-            return $cached;
+        if (!$bypassCache) {
+            $cached = get_site_transient($cacheKey);
+            if (is_array($cached) && isset($cached['version'])) {
+                $errorMessage = '';
+                return $cached;
+            }
         }
 
-        $response = wp_remote_get(self::MANIFEST_URL, [
+        $url = self::MANIFEST_URL;
+        if ($bypassCache) {
+            $url = add_query_arg('nocache', (string) time(), $url);
+        }
+
+        $response = wp_remote_get($url, [
             'timeout' => 10,
             'headers' => [
                 'User-Agent' => 'WordPress/CDN-Drive-Sync',
+                'Cache-Control' => 'no-cache',
             ],
         ]);
 
         if (is_wp_error($response)) {
             $errorMessage = $response->get_error_message();
-            self::debugLog('GitHub release check failed: ' . $response->get_error_message());
+            self::debugLog('Update manifest check failed: ' . $response->get_error_message());
             return null;
         }
 
