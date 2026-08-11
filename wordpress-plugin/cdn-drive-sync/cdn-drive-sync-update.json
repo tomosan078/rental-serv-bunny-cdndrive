@@ -1,0 +1,9 @@
+{
+  "version": "1.5.7",
+  "package": "https://github.com/tomosan078/rental-serv-bunny-cdndrive/releases/latest/download/cdn-drive-sync.zip",
+  "requires": "6.0",
+  "tested": "6.0",
+  "homepage": "https://github.com/tomosan078/rental-serv-bunny-cdndrive",
+  "description": "CORESERVER V2 / BunnyCDN 連携の CDN 配信プラグインです。",
+  "changelog": "GitHub Release を確認してください。"
+}

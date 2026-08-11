@@ -2,7 +2,7 @@
 /**
  * Plugin Name: CDN Drive Sync
  * Description: Syncs WordPress media files and generated image sizes to CDN Drive, then rewrites media URLs to the BunnyCDN hostname.
- * Version: 1.5.1
+ * Version: 1.5.7
  * Author: Pronelt
  * Requires at least: 6.0
  * Requires PHP: 8.0
@@ -20,6 +20,8 @@ final class CDN_Drive_Sync
     private const GITHUB_OWNER = 'tomosan078';
     private const GITHUB_REPO = 'rental-serv-bunny-cdndrive';
     private const GITHUB_ASSET = 'cdn-drive-sync.zip';
+    private const MANIFEST_ASSET = 'cdn-drive-sync-update.json';
+    private const MANIFEST_URL = 'https://raw.githubusercontent.com/tomosan078/rental-serv-bunny-cdndrive/main/wordpress-plugin/cdn-drive-sync/cdn-drive-sync-update.json';
 
     public static function boot(): void
     {
@@ -78,17 +80,17 @@ final class CDN_Drive_Sync
             return $transient;
         }
 
-        $release = self::latestGitHubRelease();
-        if ($release === null) {
+        $manifest = self::latestUpdateManifest();
+        if ($manifest === null) {
             return $transient;
         }
 
-        $latestVersion = ltrim((string)($release['tag_name'] ?? ''), "vV");
+        $latestVersion = trim((string)($manifest['version'] ?? ''));
         if ($latestVersion === '' || version_compare($latestVersion, self::pluginVersion(), '<=')) {
             return $transient;
         }
 
-        $package = self::releaseAssetUrl($release) ?: (string)($release['zipball_url'] ?? '');
+        $package = trim((string)($manifest['package'] ?? ''));
         if ($package === '') {
             return $transient;
         }
@@ -112,24 +114,24 @@ final class CDN_Drive_Sync
             return $result;
         }
 
-        $release = self::latestGitHubRelease();
-        if ($release === null) {
+        $manifest = self::latestUpdateManifest();
+        if ($manifest === null) {
             return $result;
         }
 
-        $version = ltrim((string)($release['tag_name'] ?? self::pluginVersion()), "vV");
+        $version = trim((string)($manifest['version'] ?? self::pluginVersion()));
         $info = new stdClass();
         $info->name = 'CDN Drive Sync';
         $info->slug = 'cdn-drive-sync';
         $info->version = $version;
         $info->author = '<a href="' . esc_url('https://github.com/' . self::GITHUB_OWNER) . '">Pronelt</a>';
         $info->homepage = self::projectUrl();
-        $info->download_link = self::releaseAssetUrl($release) ?: (string)($release['zipball_url'] ?? '');
+        $info->download_link = trim((string)($manifest['package'] ?? ''));
         $info->requires = '6.0';
-        $info->tested = get_bloginfo('version');
+        $info->tested = (string)($manifest['tested'] ?? get_bloginfo('version'));
         $info->sections = [
-            'description' => 'CORESERVER V2 / BunnyCDN 連携の CDN 配信プラグインです。GitHub Release の最新版を WordPress の更新画面に表示します。',
-            'changelog' => (string)($release['body'] ?? 'GitHub Release を確認してください。'),
+            'description' => (string)($manifest['description'] ?? 'CORESERVER V2 / BunnyCDN 連携の CDN 配信プラグインです。'),
+            'changelog' => (string)($manifest['changelog'] ?? 'Release を確認してください。'),
         ];
 
         return $info;
@@ -407,11 +409,20 @@ final class CDN_Drive_Sync
             wp_update_plugins();
         }
 
+        $lookupError = '';
+        $manifest = self::latestUpdateManifest($lookupError);
+        if ($manifest === null && $lookupError !== '') {
+            self::redirectWithNotice('更新確認に失敗しました: ' . $lookupError, 60);
+            return;
+        }
+
         $updates = get_site_transient('update_plugins');
         $pluginFile = plugin_basename(__FILE__);
         $availableVersion = '';
         if (is_object($updates) && !empty($updates->response[$pluginFile]->new_version)) {
             $availableVersion = (string)$updates->response[$pluginFile]->new_version;
+        } elseif (is_array($manifest) && !empty($manifest['version']) && version_compare((string)$manifest['version'], self::pluginVersion(), '>')) {
+            $availableVersion = (string)$manifest['version'];
         }
 
         if ($availableVersion !== '') {
@@ -1003,24 +1014,24 @@ final class CDN_Drive_Sync
         }
     }
 
-    private static function latestGitHubRelease(): ?array
+    private static function latestUpdateManifest(?string &$errorMessage = null): ?array
     {
-        $cacheKey = 'cdn_drive_sync_latest_release';
+        $cacheKey = 'cdn_drive_sync_latest_manifest';
         $cached = get_site_transient($cacheKey);
-        if (is_array($cached) && isset($cached['tag_name'])) {
+        if (is_array($cached) && isset($cached['version'])) {
+            $errorMessage = '';
             return $cached;
         }
 
-        $url = sprintf('https://api.github.com/repos/%s/%s/releases/latest', self::GITHUB_OWNER, self::GITHUB_REPO);
-        $response = wp_remote_get($url, [
+        $response = wp_remote_get(self::MANIFEST_URL, [
             'timeout' => 10,
             'headers' => [
-                'Accept' => 'application/vnd.github+json',
                 'User-Agent' => 'WordPress/CDN-Drive-Sync',
             ],
         ]);
 
         if (is_wp_error($response)) {
+            $errorMessage = $response->get_error_message();
             self::debugLog('GitHub release check failed: ' . $response->get_error_message());
             return null;
         }
@@ -1028,18 +1039,21 @@ final class CDN_Drive_Sync
         $code = (int) wp_remote_retrieve_response_code($response);
         $body = wp_remote_retrieve_body($response);
         if ($code !== 200 || trim($body) === '') {
-            self::debugLog('GitHub release check returned HTTP ' . $code);
+            $errorMessage = 'HTTP ' . $code . ' from update manifest';
+            self::debugLog('Update manifest check returned HTTP ' . $code);
             return null;
         }
 
-        $release = json_decode($body, true);
-        if (!is_array($release) || empty($release['tag_name'])) {
-            self::debugLog('GitHub release payload is invalid.');
+        $manifest = json_decode($body, true);
+        if (!is_array($manifest) || empty($manifest['version']) || empty($manifest['package'])) {
+            $errorMessage = 'Update manifest payload is invalid';
+            self::debugLog('Update manifest payload is invalid.');
             return null;
         }
 
-        set_site_transient($cacheKey, $release, HOUR_IN_SECONDS);
-        return $release;
+        set_site_transient($cacheKey, $manifest, HOUR_IN_SECONDS);
+        $errorMessage = '';
+        return $manifest;
     }
 
     private static function pluginVersion(): string
@@ -1061,20 +1075,6 @@ final class CDN_Drive_Sync
         }
 
         return $version;
-    }
-
-    private static function releaseAssetUrl(array $release): string
-    {
-        foreach ((array)($release['assets'] ?? []) as $asset) {
-            if (!is_array($asset)) {
-                continue;
-            }
-            if ((string)($asset['name'] ?? '') === self::GITHUB_ASSET) {
-                return (string)($asset['browser_download_url'] ?? '');
-            }
-        }
-
-        return '';
     }
 
     private static function projectUrl(): string
