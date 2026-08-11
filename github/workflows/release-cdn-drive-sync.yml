@@ -1,0 +1,51 @@
+name: Release CDN Drive Sync
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'wordpress-plugin/cdn-drive-sync/**'
+      - '.github/workflows/release-cdn-drive-sync.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Read plugin version
+        id: version
+        run: |
+          VERSION=$(php -r '$content = file_get_contents("wordpress-plugin/cdn-drive-sync/cdn-drive-sync.php"); if (preg_match("/^\\s*\\*\\s*Version:\\s*(.+)$/m", $content, $matches)) { echo trim($matches[1]); }')
+          if [ -z "$VERSION" ]; then
+            echo "Unable to read plugin version" >&2
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare package
+        run: |
+          set -e
+          rm -rf dist
+          mkdir -p dist/staging/cdn-drive-sync
+          cp wordpress-plugin/cdn-drive-sync/cdn-drive-sync.php dist/staging/cdn-drive-sync/
+          (cd dist/staging && zip -qr ../cdn-drive-sync.zip cdn-drive-sync)
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: CDN Drive Sync v${{ steps.version.outputs.version }}
+          files: dist/cdn-drive-sync.zip
+          generate_release_notes: true
+          make_latest: true
