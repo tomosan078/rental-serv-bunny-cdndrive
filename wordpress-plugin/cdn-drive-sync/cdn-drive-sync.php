@@ -2,7 +2,7 @@
 /**
  * Plugin Name: CDN Drive Sync
  * Description: Syncs WordPress media files and generated image sizes to CDN Drive, then rewrites media URLs to the BunnyCDN hostname.
- * Version: 1.1.5
+ * Version: 1.2.0
  * Author: Pronelt
  * Requires at least: 6.0
  * Requires PHP: 8.0
