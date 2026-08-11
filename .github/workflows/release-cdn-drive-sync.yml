@@ -7,6 +7,8 @@ on:
     paths:
       - 'wordpress-plugin/cdn-drive-sync/**'
       - '.github/workflows/release-cdn-drive-sync.yml'
+    paths-ignore:
+      - 'wordpress-plugin/cdn-drive-sync/cdn-drive-sync-update.json'
   workflow_dispatch:
 
 permissions:
@@ -19,6 +21,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Read plugin version
         id: version
@@ -37,6 +41,17 @@ jobs:
           rm -rf dist
           mkdir -p dist/staging/cdn-drive-sync
           cp wordpress-plugin/cdn-drive-sync/cdn-drive-sync.php dist/staging/cdn-drive-sync/
+          cat > wordpress-plugin/cdn-drive-sync/cdn-drive-sync-update.json <<EOF
+          {
+            "version": "${{ steps.version.outputs.version }}",
+            "package": "https://github.com/tomosan078/rental-serv-bunny-cdndrive/releases/latest/download/cdn-drive-sync.zip",
+            "requires": "6.0",
+            "tested": "6.0",
+            "homepage": "https://github.com/tomosan078/rental-serv-bunny-cdndrive",
+            "description": "CORESERVER V2 / BunnyCDN 連携の CDN 配信プラグインです。",
+            "changelog": "GitHub Release を確認してください。"
+          }
+          EOF
           (cd dist/staging && zip -qr ../cdn-drive-sync.zip cdn-drive-sync)
 
       - name: Publish release
@@ -46,6 +61,20 @@ jobs:
         with:
           tag_name: ${{ steps.version.outputs.tag }}
           name: CDN Drive Sync v${{ steps.version.outputs.version }}
-          files: dist/cdn-drive-sync.zip
+          files: |
+            dist/cdn-drive-sync.zip
           generate_release_notes: true
           make_latest: true
+
+      - name: Commit manifest back to main
+        if: github.ref == 'refs/heads/main'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add wordpress-plugin/cdn-drive-sync/cdn-drive-sync-update.json
+          if git diff --cached --quiet; then
+            echo "No manifest changes to commit."
+            exit 0
+          fi
+          git commit -m "Update CDN Drive Sync manifest [skip ci]"
+          git push
