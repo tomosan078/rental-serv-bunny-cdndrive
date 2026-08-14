@@ -2,3 +2,6 @@ data/peer.json
 data/peer-sync.log
 data/peer-transfers/
 data/trash-peer/
+data/failover.json
+data/failover-state.json
+data/failover.lock
