@@ -155,6 +155,23 @@
     list.querySelectorAll('[data-op]').forEach(el => el.addEventListener('click', () => operate(el.dataset.op, el.dataset.type, Number(el.dataset.id))));
   }
 
+  function removeVisibleItem(type, id) {
+    if (type === 'file') {
+      state.items.files = state.items.files.filter(item => item.id !== id);
+    } else if (type === 'folder') {
+      state.items.folders = state.items.folders.filter(item => item.id !== id);
+    }
+    renderList();
+  }
+
+  async function refreshAfterMutation() {
+    try {
+      await load();
+    } catch (e) {
+      toast(`一覧の再取得に失敗しました: ${e.message}`, true);
+    }
+  }
+
   function rowHtml(type, item) {
     const isFile = type === 'file';
     const open = isFile ? `data-preview="${item.id}"` : `data-open-folder="${item.id}"`;
@@ -271,11 +288,21 @@
         const name = await promptModal('名前変更', '新しい名前', item.name);
         if (name) { await api('api/rename', { method: 'POST', json: { type, id, name } }); await load(); }
       } else if (op === 'delete') {
-        if (await confirmModal('削除しますか？')) { await api('api/delete', { method: 'POST', json: { type, id } }); await load(); }
+        if (await confirmModal('削除しますか？')) {
+          await api('api/delete', { method: 'POST', json: { type, id } });
+          removeVisibleItem(type, id);
+          await refreshAfterMutation();
+        }
       } else if (op === 'purge') {
-        if (await confirmModal('完全に削除しますか？')) { await api('api/delete', { method: 'POST', json: { type, id } }); await load(); }
+        if (await confirmModal('完全に削除しますか？')) {
+          await api('api/delete', { method: 'POST', json: { type, id } });
+          removeVisibleItem(type, id);
+          await refreshAfterMutation();
+        }
       } else if (op === 'restore') {
-        await api('api/restore', { method: 'POST', json: { id } }); await load();
+        await api('api/restore', { method: 'POST', json: { id } });
+        removeVisibleItem('file', id);
+        await refreshAfterMutation();
       } else if (op === 'share') {
         showShare(item);
       } else if (op === 'copy') {
