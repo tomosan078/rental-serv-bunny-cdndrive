@@ -24,8 +24,31 @@ The implementation deliberately uses **primary -> replica** origin replication i
 
 Application metadata such as users, sessions, shares and settings remains authoritative on the primary SQLite database.
 
+## Replica mode
+
+When `data/peer.json` contains:
+
+```json
+{
+  "role": "replica"
+}
+```
+
+`index.php` switches the node into origin-only replica mode. Dynamic CDN Drive application routes return HTTP 404, including `/`, `/install`, `/login` and `/api/*`.
+
+The web server still serves existing files/directories directly, so these remain available:
+
+- `/origin/...` for BunnyCDN origin reads
+- `/peer.php` for authenticated peer replication
+- ordinary static assets/files that physically exist
+
+This prevents a replica from accidentally exposing a second installer, login screen or writable administration panel.
+
+The repository root `.htaccess` routes non-file/non-directory requests to `index.php`, while leaving `peer.php` and `origin/` requests untouched.
+
 ## Files
 
+- `.htaccess` - front-controller rewrite rules while preserving direct origin/peer access
 - `peer.php` - authenticated peer HTTP endpoint
 - `app/PeerNode.php` - peer protocol, HMAC authentication, chunk transfer and checksum verification
 - `app/PeerReconciler.php` - shared reconciliation logic
