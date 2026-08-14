@@ -1,0 +1,9 @@
+Options -Indexes
+
+RewriteEngine On
+
+# Existing files/directories (including peer.php and origin/*) are served
+# directly. Everything else goes through the CDN Drive front controller.
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^ index.php [L,QSA]
