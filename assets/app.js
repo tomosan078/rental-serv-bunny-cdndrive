@@ -164,12 +164,32 @@
     renderList();
   }
 
+  function restoreVisibleItem(type, item) {
+    if (type === 'file') {
+      if (!state.items.files.some(current => current.id === item.id)) state.items.files.push(item);
+    } else if (type === 'folder') {
+      if (!state.items.folders.some(current => current.id === item.id)) state.items.folders.push(item);
+    }
+    renderList();
+  }
+
   async function refreshAfterMutation() {
     try {
       await load();
     } catch (e) {
       toast(`一覧の再取得に失敗しました: ${e.message}`, true);
     }
+  }
+
+  async function runOptimisticRemoval(type, item, request) {
+    removeVisibleItem(type, item.id);
+    try {
+      await request();
+    } catch (e) {
+      restoreVisibleItem(type, item);
+      throw e;
+    }
+    await refreshAfterMutation();
   }
 
   function rowHtml(type, item) {
@@ -279,7 +299,7 @@
 
   async function operate(op, type, id) {
     const item = type === 'file' ? state.items.files.find(x => x.id === id) : state.items.folders.find(x => x.id === id);
-    if (!item && op !== 'restore') return;
+    if (!item) return;
     try {
       if (op === 'copyUrl') {
         await copyText(item.url);
@@ -289,20 +309,14 @@
         if (name) { await api('api/rename', { method: 'POST', json: { type, id, name } }); await load(); }
       } else if (op === 'delete') {
         if (await confirmModal('削除しますか？')) {
-          await api('api/delete', { method: 'POST', json: { type, id } });
-          removeVisibleItem(type, id);
-          await refreshAfterMutation();
+          await runOptimisticRemoval(type, item, () => api('api/delete', { method: 'POST', json: { type, id } }));
         }
       } else if (op === 'purge') {
         if (await confirmModal('完全に削除しますか？')) {
-          await api('api/delete', { method: 'POST', json: { type, id } });
-          removeVisibleItem(type, id);
-          await refreshAfterMutation();
+          await runOptimisticRemoval(type, item, () => api('api/delete', { method: 'POST', json: { type, id } }));
         }
       } else if (op === 'restore') {
-        await api('api/restore', { method: 'POST', json: { id } });
-        removeVisibleItem('file', id);
-        await refreshAfterMutation();
+        await runOptimisticRemoval('file', item, () => api('api/restore', { method: 'POST', json: { id } }));
       } else if (op === 'share') {
         showShare(item);
       } else if (op === 'copy') {
