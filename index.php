@@ -102,6 +102,15 @@ if ($syncOnShutdown && is_file($configFile)) {
                 return;
             }
 
+            // App starts a file-backed PHP session for every request. Without
+            // releasing it here, slow peer I/O in this shutdown callback keeps
+            // the session file locked and later browser requests using the same
+            // cookie can block until replication finishes. Close the session
+            // before doing any peer work so the UI remains responsive.
+            if (session_status() === PHP_SESSION_ACTIVE) {
+                @session_write_close();
+            }
+
             // Send the application response before doing best-effort peer I/O.
             if (function_exists('fastcgi_finish_request')) {
                 @fastcgi_finish_request();
