@@ -738,7 +738,7 @@ CREATE INDEX IF NOT EXISTS idx_logs_created ON logs(created_at);
         $type = $data['type'] ?? '';
         $now = $this->now();
         if ($type === 'file') {
-            $row = $this->assertFileAccess($id);
+            $row = $this->assertFileAccess($id, true);
             if ($row['deleted_at']) {
                 $this->purgeFile($row);
                 $this->pdo->prepare('DELETE FROM files WHERE id = ?')->execute([$id]);
