@@ -339,7 +339,31 @@ CREATE INDEX IF NOT EXISTS idx_logs_created ON logs(created_at);
         foreach ($checks as $label => $ok) {
             $rows .= '<div class="flex items-center justify-between border-b border-white/10 py-2"><span>' . $this->e($label) . '</span><span class="' . ($ok ? 'text-emerald-400' : 'text-red-400') . '">' . ($ok ? 'OK' : 'NG') . '</span></div>';
         }
-        $body = '\n<main class="min-h-screen bg-slate-950 text-slate-100">\n  <section class="mx-auto flex min-h-screen max-w-6xl items-center px-5 py-10">\n    <div class="grid w-full gap-8 lg:grid-cols-[1fr_440px]">\n      <div class="flex flex-col justify-center">\n        <p class="text-sm uppercase tracking-[0.25em] text-cyan-300">CORESERVER V2 + BunnyCDN</p>\n        <h1 class="mt-5 text-4xl font-semibold tracking-normal text-white sm:text-5xl">CDN Drive</h1>\n        <p class="mt-5 max-w-2xl text-lg leading-8 text-slate-300">CORESERVER V2 をオリジンとして使い、BunnyCDN Pull Zone で配信するファイル管理サービスを初期化します。</p>\n        <div class="mt-8 rounded-2xl border border-white/10 bg-white/5 p-5 shadow-2xl shadow-cyan-950/30 backdrop-blur">' . $rows . '</div>\n      </div>\n      <form method="post" class="rounded-2xl border border-white/10 bg-white/10 p-6 shadow-2xl shadow-cyan-950/30 backdrop-blur">\n        ' . $this->csrfField() . '\n        <h2 class="text-xl font-semibold text-white">初期設定</h2>\n        <label class="mt-5 block text-sm text-slate-300">管理者名<input required name="name" class="mt-2 w-full rounded-lg border border-white/10 bg-slate-950/70 px-3 py-2 text-white outline-none focus:border-cyan-300" autocomplete="name"></label>\n        <label class="mt-4 block text-sm text-slate-300">メールアドレス<input required type="email" name="email" class="mt-2 w-full rounded-lg border border-white/10 bg-slate-950/70 px-3 py-2 text-white outline-none focus:border-cyan-300" autocomplete="email"></label>\n        <label class="mt-4 block text-sm text-slate-300">パスワード<input required type="password" minlength="12" name="password" class="mt-2 w-full rounded-lg border border-white/10 bg-slate-950/70 px-3 py-2 text-white outline-none focus:border-cyan-300" autocomplete="new-password"></label>\n        <label class="mt-4 block text-sm text-slate-300">CDN Hostname<input required name="cdn_hostname" placeholder="cdn.example.com" class="mt-2 w-full rounded-lg border border-white/10 bg-slate-950/70 px-3 py-2 text-white outline-none focus:border-cyan-300"><span class="mt-1 block text-xs text-slate-500">https:// やパスは入れず、BunnyCDN の配信用ホスト名だけを入力します。</span></label>\n        <label class="mt-4 block text-sm text-slate-300">Origin URL<input required name="origin_url" value="' . $this->e($origin) . '" class="mt-2 w-full rounded-lg border border-white/10 bg-slate-950/70 px-3 py-2 text-white outline-none focus:border-cyan-300"><span class="mt-1 block text-xs text-slate-500">CORESERVER 上の origin ディレクトリ URL を入力します。</span></label>\n        <label class="mt-4 block text-sm text-slate-300">Bunny API Key<input name="bunny_api_key" class="mt-2 w-full rounded-lg border border-white/10 bg-slate-950/70 px-3 py-2 text-white outline-none focus:border-cyan-300" autocomplete="off"></label>\n        <label class="mt-4 block text-sm text-slate-300">Pull Zone ID<input name="pull_zone_id" inputmode="numeric" class="mt-2 w-full rounded-lg border border-white/10 bg-slate-950/70 px-3 py-2 text-white outline-none focus:border-cyan-300"></label>\n        <button class="mt-6 w-full rounded-lg bg-cyan-400 px-4 py-3 font-semibold text-slate-950 hover:bg-cyan-300">インストール</button>\n      </form>\n    </div>\n  </section>\n</main>';
+        $body = '
+<main class="min-h-screen bg-slate-950 text-slate-100">
+  <section class="mx-auto flex min-h-screen max-w-6xl items-center px-5 py-10">
+    <div class="grid w-full gap-8 lg:grid-cols-[1fr_440px]">
+      <div class="flex flex-col justify-center">
+        <p class="text-sm uppercase tracking-[0.25em] text-cyan-300">CORESERVER V2 + BunnyCDN</p>
+        <h1 class="mt-5 text-4xl font-semibold tracking-normal text-white sm:text-5xl">CDN Drive</h1>
+        <p class="mt-5 max-w-2xl text-lg leading-8 text-slate-300">CORESERVER V2 をオリジンとして使い、BunnyCDN Pull Zone で配信するファイル管理サービスを初期化します。</p>
+        <div class="mt-8 rounded-2xl border border-white/10 bg-white/5 p-5 shadow-2xl shadow-cyan-950/30 backdrop-blur">' . $rows . '</div>
+      </div>
+      <form method="post" class="rounded-2xl border border-white/10 bg-white/10 p-6 shadow-2xl shadow-cyan-950/30 backdrop-blur">
+        ' . $this->csrfField() . '
+        <h2 class="text-xl font-semibold text-white">初期設定</h2>
+        <label class="mt-5 block text-sm text-slate-300">管理者名<input required name="name" class="mt-2 w-full rounded-lg border border-white/10 bg-slate-950/70 px-3 py-2 text-white outline-none focus:border-cyan-300" autocomplete="name"></label>
+        <label class="mt-4 block text-sm text-slate-300">メールアドレス<input required type="email" name="email" class="mt-2 w-full rounded-lg border border-white/10 bg-slate-950/70 px-3 py-2 text-white outline-none focus:border-cyan-300" autocomplete="email"></label>
+        <label class="mt-4 block text-sm text-slate-300">パスワード<input required type="password" minlength="12" name="password" class="mt-2 w-full rounded-lg border border-white/10 bg-slate-950/70 px-3 py-2 text-white outline-none focus:border-cyan-300" autocomplete="new-password"></label>
+        <label class="mt-4 block text-sm text-slate-300">CDN Hostname<input required name="cdn_hostname" placeholder="cdn.example.com" class="mt-2 w-full rounded-lg border border-white/10 bg-slate-950/70 px-3 py-2 text-white outline-none focus:border-cyan-300"><span class="mt-1 block text-xs text-slate-500">https:// やパスは入れず、BunnyCDN の配信用ホスト名だけを入力します。</span></label>
+        <label class="mt-4 block text-sm text-slate-300">Origin URL<input required name="origin_url" value="' . $this->e($origin) . '" class="mt-2 w-full rounded-lg border border-white/10 bg-slate-950/70 px-3 py-2 text-white outline-none focus:border-cyan-300"><span class="mt-1 block text-xs text-slate-500">CORESERVER 上の origin ディレクトリ URL を入力します。</span></label>
+        <label class="mt-4 block text-sm text-slate-300">Bunny API Key<input name="bunny_api_key" class="mt-2 w-full rounded-lg border border-white/10 bg-slate-950/70 px-3 py-2 text-white outline-none focus:border-cyan-300" autocomplete="off"></label>
+        <label class="mt-4 block text-sm text-slate-300">Pull Zone ID<input name="pull_zone_id" inputmode="numeric" class="mt-2 w-full rounded-lg border border-white/10 bg-slate-950/70 px-3 py-2 text-white outline-none focus:border-cyan-300"></label>
+        <button class="mt-6 w-full rounded-lg bg-cyan-400 px-4 py-3 font-semibold text-slate-950 hover:bg-cyan-300">インストール</button>
+      </form>
+    </div>
+  </section>
+</main>';
         echo $this->page('Install', $body);
     }
 
@@ -428,7 +452,20 @@ CREATE INDEX IF NOT EXISTS idx_logs_created ON logs(created_at);
             return;
         }
         $err = $error ? '<div class="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">' . $this->e($error) . '</div>' : '';
-        $body = '\n<main class="min-h-screen bg-slate-950 text-slate-100">\n  <section class="mx-auto flex min-h-screen max-w-md items-center px-5">\n    <form method="post" class="w-full rounded-2xl border border-white/10 bg-white/10 p-6 shadow-2xl shadow-cyan-950/30 backdrop-blur">\n      ' . $this->csrfField() . '\n      <p class="text-sm uppercase tracking-[0.25em] text-cyan-300">CDN Drive</p>\n      <h1 class="mt-3 text-3xl font-semibold text-white">ログイン</h1>\n      ' . $err . '\n      <label class="mt-6 block text-sm text-slate-300">メールアドレス<input required type="email" name="email" class="mt-2 w-full rounded-lg border border-white/10 bg-slate-950/70 px-3 py-2 text-white outline-none focus:border-cyan-300" autocomplete="email"></label>\n      <label class="mt-4 block text-sm text-slate-300">パスワード<input required type="password" name="password" class="mt-2 w-full rounded-lg border border-white/10 bg-slate-950/70 px-3 py-2 text-white outline-none focus:border-cyan-300" autocomplete="current-password"></label>\n      <button class="mt-6 w-full rounded-lg bg-cyan-400 px-4 py-3 font-semibold text-slate-950 hover:bg-cyan-300">ログイン</button>\n    </form>\n  </section>\n</main>';
+        $body = '
+<main class="min-h-screen bg-slate-950 text-slate-100">
+  <section class="mx-auto flex min-h-screen max-w-md items-center px-5">
+    <form method="post" class="w-full rounded-2xl border border-white/10 bg-white/10 p-6 shadow-2xl shadow-cyan-950/30 backdrop-blur">
+      ' . $this->csrfField() . '
+      <p class="text-sm uppercase tracking-[0.25em] text-cyan-300">CDN Drive</p>
+      <h1 class="mt-3 text-3xl font-semibold text-white">ログイン</h1>
+      ' . $err . '
+      <label class="mt-6 block text-sm text-slate-300">メールアドレス<input required type="email" name="email" class="mt-2 w-full rounded-lg border border-white/10 bg-slate-950/70 px-3 py-2 text-white outline-none focus:border-cyan-300" autocomplete="email"></label>
+      <label class="mt-4 block text-sm text-slate-300">パスワード<input required type="password" name="password" class="mt-2 w-full rounded-lg border border-white/10 bg-slate-950/70 px-3 py-2 text-white outline-none focus:border-cyan-300" autocomplete="current-password"></label>
+      <button class="mt-6 w-full rounded-lg bg-cyan-400 px-4 py-3 font-semibold text-slate-950 hover:bg-cyan-300">ログイン</button>
+    </form>
+  </section>
+</main>';
         echo $this->page('Login', $body);
     }
 
@@ -483,7 +520,10 @@ CREATE INDEX IF NOT EXISTS idx_logs_created ON logs(created_at);
             'user' => $this->safeUser($user),
             'settings' => $settings,
         ];
-        $body = '\n<div id="app" class="min-h-screen"></div>\n<script>window.CDN_DRIVE_STATE = ' . json_encode($state, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . ';</script>\n<script src="' . $this->asset('/assets/app.js') . '"></script>';
+        $body = '
+<div id="app" class="min-h-screen"></div>
+<script>window.CDN_DRIVE_STATE = ' . json_encode($state, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . ';</script>
+<script src="' . $this->asset('/assets/app.js') . '"></script>';
         echo $this->page('CDN Drive', $body, true);
     }
 
@@ -1498,7 +1538,8 @@ CREATE INDEX IF NOT EXISTS idx_logs_created ON logs(created_at);
         }
         $now = $this->now();
         $expires = (new DateTimeImmutable('+12 hours', new DateTimeZone('UTC')))->format(DATE_ATOM);
-        $stmt = $this->pdo->prepare('INSERT INTO sessions(id,user_id,ip,user_agent,csrf_hash,expires_at,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)\n            ON CONFLICT(id) DO UPDATE SET user_id=excluded.user_id, ip=excluded.ip, user_agent=excluded.user_agent, csrf_hash=excluded.csrf_hash, expires_at=excluded.expires_at, updated_at=excluded.updated_at');
+        $stmt = $this->pdo->prepare('INSERT INTO sessions(id,user_id,ip,user_agent,csrf_hash,expires_at,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)
+            ON CONFLICT(id) DO UPDATE SET user_id=excluded.user_id, ip=excluded.ip, user_agent=excluded.user_agent, csrf_hash=excluded.csrf_hash, expires_at=excluded.expires_at, updated_at=excluded.updated_at');
         $stmt->execute([session_id(), $this->userId(), $this->ip(), substr($_SERVER['HTTP_USER_AGENT'] ?? '', 0, 500), hash('sha256', $_SESSION['csrf'] ?? ''), $expires, $now, $now]);
         $this->pdo->prepare('DELETE FROM sessions WHERE expires_at < ?')->execute([$now]);
     }
