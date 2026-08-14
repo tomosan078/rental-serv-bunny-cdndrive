@@ -2,5 +2,11 @@
   "node_name": "origin-a",
   "role": "primary",
   "peer_url": "https://origin-b.example.com",
-  "shared_secret": "replace-with-a-long-random-secret"
+  "shared_secret": "replace-with-a-long-random-secret-at-least-32-characters",
+  "chunk_size_bytes": 4194304,
+  "connect_timeout_seconds": 10,
+  "request_timeout_seconds": 120,
+  "sync_on_request": true,
+  "sync_recent_limit": 100,
+  "stale_transfer_max_age_seconds": 86400
 }
