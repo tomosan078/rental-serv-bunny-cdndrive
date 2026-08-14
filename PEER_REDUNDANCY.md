@@ -14,24 +14,33 @@ BunnyCDN
 Origin A <---- HMAC authenticated HTTPS ----> Origin B
 ```
 
-The first implementation deliberately uses **primary -> replica** reconciliation instead of active-active metadata writes. This avoids split-brain problems with two independent SQLite databases while still giving BunnyCDN a second copy of every origin object.
+The implementation deliberately uses **primary -> replica** origin replication instead of active-active SQLite writes. This avoids split-brain problems with two independent SQLite databases while still giving BunnyCDN a second copy of every origin object.
+
+## What is replicated
+
+- Files under `origin/objects/...`
+- File deletion state: a deleted primary object is moved out of the replica origin into `data/trash-peer/...`
+- SHA-256 integrity is checked before an object is considered synchronized
+
+Application metadata such as users, sessions, shares and settings remains authoritative on the primary SQLite database.
 
 ## Files
 
 - `peer.php` - authenticated peer HTTP endpoint
-- `app/PeerNode.php` - peer protocol, HMAC authentication, checksum verification and file operations
-- `peer-sync.php` - CLI reconciliation command run on the primary node
+- `app/PeerNode.php` - peer protocol, HMAC authentication, chunk transfer and checksum verification
+- `app/PeerReconciler.php` - shared reconciliation logic
+- `peer-sync.php` - CLI reconciliation/repair command run on the primary node
 - `data/peer.example.json` - configuration example
 
 ## Configure both servers
 
-Copy the example:
+Copy the example on both nodes:
 
 ```bash
 cp data/peer.example.json data/peer.json
 ```
 
-Generate a secret (run once and use the same value on both nodes):
+Generate a secret once and use the same value on both nodes:
 
 ```bash
 php -r 'echo bin2hex(random_bytes(32)), PHP_EOL;'
@@ -44,7 +53,13 @@ Primary example:
   "node_name": "origin-a",
   "role": "primary",
   "peer_url": "https://origin-b.example.com",
-  "shared_secret": "YOUR_SHARED_SECRET"
+  "shared_secret": "YOUR_SHARED_SECRET",
+  "chunk_size_bytes": 4194304,
+  "connect_timeout_seconds": 10,
+  "request_timeout_seconds": 120,
+  "sync_on_request": true,
+  "sync_recent_limit": 100,
+  "stale_transfer_max_age_seconds": 86400
 }
 ```
 
@@ -55,13 +70,39 @@ Replica example:
   "node_name": "origin-b",
   "role": "replica",
   "peer_url": "https://origin-a.example.com",
-  "shared_secret": "YOUR_SHARED_SECRET"
+  "shared_secret": "YOUR_SHARED_SECRET",
+  "chunk_size_bytes": 4194304,
+  "connect_timeout_seconds": 10,
+  "request_timeout_seconds": 120,
+  "sync_on_request": false,
+  "sync_recent_limit": 100,
+  "stale_transfer_max_age_seconds": 86400
 }
 ```
 
-`data/peer.json` must not be publicly readable. The existing `data/.htaccess` protection should remain enabled.
+`data/peer.json` must not be publicly readable. Keep the existing `data/.htaccess` protection enabled.
 
-## Initial sync
+## Transfer protocol
+
+Large objects are **not** encoded as one base64 JSON request. The primary transfers them in bounded binary chunks:
+
+1. `upload-init` creates a random transfer id and records path, size and SHA-256.
+2. `upload-chunk` appends a binary chunk at an exact byte offset.
+3. `upload-commit` verifies total size and SHA-256, then atomically moves the completed file into `origin/objects/...`.
+
+The default chunk size is 4 MiB. You can tune `chunk_size_bytes`, but keep it below the request-size limits of both hosting providers.
+
+Interrupted transfers stay in `data/peer-transfers/` and can be safely retried by reconciliation. Completed objects are only exposed from `origin/` after final checksum verification.
+
+## Near-real-time replication
+
+When `sync_on_request` is enabled on the primary, `index.php` performs a best-effort reconciliation after a mutating `POST` request. On FastCGI environments it flushes the user's response first with `fastcgi_finish_request()` when available.
+
+The recent reconciliation checks the most recently updated file rows. `sync_recent_limit` controls the maximum number of rows checked after a request.
+
+This path is deliberately **best effort**: a peer outage must not turn a successful user upload/delete into a failed application response. Errors are written to the PHP error log and the scheduled full reconciliation repairs them later.
+
+## Initial/full sync
 
 On the primary:
 
@@ -71,16 +112,24 @@ php peer-sync.php
 
 For every row in the primary `files` table the command:
 
-1. asks the replica for the SHA-256 checksum;
+1. asks the replica for its SHA-256 state;
 2. skips objects that already match;
-3. uploads missing or mismatched objects;
+3. chunk-uploads missing or mismatched objects;
 4. propagates `deleted_at` objects as deletions on the replica.
 
-The command exits with code `0` when all objects reconcile and `2` if one or more objects fail.
+The command exits with code `0` when all objects reconcile, `2` when one or more objects fail, and `1` for a fatal configuration/connection error.
 
-## Cron
+For a quicker manual check of only recently updated rows:
 
-After the first manual test, run reconciliation periodically on the primary. Example every five minutes:
+```bash
+php peer-sync.php --recent=100
+```
+
+## Cron: authoritative repair/retry loop
+
+Even with near-real-time replication enabled, run a full reconciliation periodically on the primary. This is the retry queue and repair mechanism for temporary network/server failures.
+
+Example every five minutes:
 
 ```cron
 */5 * * * * cd /path/to/cdn-drive && /usr/bin/php peer-sync.php >> data/peer-sync.log 2>&1
@@ -90,36 +139,35 @@ Do **not** run `peer-sync.php` on the replica. It checks `role=primary` and refu
 
 ## Security
 
-Peer requests use these headers:
+Every peer request uses:
 
 - `X-Peer-Timestamp`
 - `X-Peer-Signature`
 
-The signature is HMAC-SHA256 of:
+The signature is HMAC-SHA256 over:
 
 ```text
-<TIMESTAMP>\n<RAW JSON BODY>
+<TIMESTAMP>\n<ACTION>\n<RAW REQUEST BODY>
 ```
 
-Requests older than five minutes are rejected. Paths are restricted to the `objects/` namespace and `..` traversal is rejected.
+Requests older than five minutes are rejected. The shared secret must be at least 32 characters. Object paths are restricted to the `objects/` namespace and traversal using `..` is rejected.
 
-Use HTTPS between the two nodes and keep the shared secret out of source control.
+Use HTTPS between the two nodes and never commit `data/peer.json` to source control.
 
 ## Failure model
 
-This implementation focuses on **origin-file redundancy**, not active-active application state.
+- **Primary down:** the replica still has the synchronized origin files and can serve as a BunnyCDN failover origin.
+- **Replica down:** primary keeps serving. Near-real-time replication logs the failure; the next scheduled reconciliation retries it.
+- **Network interruption during a large upload:** the replica never publishes a partially transferred file into `origin/`; a later reconciliation starts a new transfer.
+- **Corrupt/mismatched replica:** SHA-256 mismatch causes the primary to retransmit the object.
+- **Application POST succeeds while replication fails:** the user response remains successful; repair is deferred to scheduled reconciliation.
 
-- Primary down: the replica still contains synchronized files and can be used as BunnyCDN failover origin.
-- Replica down: primary keeps serving; the next successful reconciliation repairs missed files.
-- Network failure during sync: the command reports a failure and leaves the primary copy untouched.
-- Corrupt/mismatched replica: checksum mismatch causes the primary to send the object again.
+## Important limitation: metadata is not active-active
 
-## Current limitation
+The replica is an **origin replica**, not a second writable CDN Drive administration node. Users, sessions, shares and other SQLite metadata are not bidirectionally synchronized.
 
-The web application's SQLite metadata is not replicated in this first step. This is intentional: copying two live SQLite databases bidirectionally risks split brain and lost writes. The replica is an origin replica, not a second writable admin panel.
-
-A future phase can add signed event replication for metadata if active-active administration is required.
+That choice is intentional. Synchronizing two independently writable SQLite databases would introduce split-brain and conflict-resolution problems. If active-active administration is required later, metadata replication needs a separate conflict model or a database designed for multi-node writes.
 
 ## BunnyCDN
 
-Configure BunnyCDN so Origin A is the normal origin and Origin B is the failover/secondary origin using the failover mechanism available on your BunnyCDN configuration. Test failover before relying on it in production.
+The two origin servers only provide storage redundancy. For automatic delivery failover, BunnyCDN must also be configured so that Origin B can be used when Origin A is unavailable. Test that failover path before relying on it in production.
