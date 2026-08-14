@@ -21,6 +21,7 @@ final class PeerReconciler
             PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
         ]);
         $this->peer = new PeerNode($this->root);
+        $this->ensureDeleteQueueSchema();
     }
 
     public function reconcileAll(?callable $report = null): array
@@ -46,6 +47,8 @@ final class PeerReconciler
             'failed' => 0,
             'errors' => [],
         ];
+
+        $this->reconcileDeleteQueue($stats, $report);
 
         foreach ($rows as $row) {
             ++$stats['checked'];
@@ -84,6 +87,59 @@ final class PeerReconciler
         }
 
         return $stats;
+    }
+
+    private function ensureDeleteQueueSchema(): void
+    {
+        $this->pdo->exec("CREATE TABLE IF NOT EXISTS peer_delete_queue (
+            relative_path TEXT PRIMARY KEY,
+            queued_at TEXT NOT NULL
+        )");
+        $this->pdo->exec("CREATE TRIGGER IF NOT EXISTS peer_queue_wp_file_delete
+            AFTER DELETE ON files
+            WHEN OLD.relative_path LIKE 'wp/%'
+            BEGIN
+                INSERT OR REPLACE INTO peer_delete_queue(relative_path, queued_at)
+                VALUES(OLD.relative_path, strftime('%Y-%m-%dT%H:%M:%fZ','now'));
+            END");
+    }
+
+    private function reconcileDeleteQueue(array &$stats, ?callable $report): void
+    {
+        $rows = $this->pdo->query('SELECT relative_path FROM peer_delete_queue ORDER BY queued_at ASC')->fetchAll();
+        if (!$rows) {
+            return;
+        }
+
+        $active = $this->pdo->prepare('SELECT 1 FROM files WHERE relative_path = ? AND deleted_at IS NULL LIMIT 1');
+        $remove = $this->pdo->prepare('DELETE FROM peer_delete_queue WHERE relative_path = ?');
+
+        foreach ($rows as $row) {
+            $relative = (string)$row['relative_path'];
+            ++$stats['checked'];
+
+            // If WordPress recreated the same path while a delete was waiting
+            // for the Replica, the queued delete is stale. Drop it so a newer
+            // object can never be removed by an old retry.
+            $active->execute([$relative]);
+            if ($active->fetchColumn() !== false) {
+                $remove->execute([$relative]);
+                ++$stats['unchanged'];
+                $this->emit($report, 'KEEP', $relative, null);
+                continue;
+            }
+
+            try {
+                $this->peer->deleteRemote($relative);
+                $remove->execute([$relative]);
+                ++$stats['deleted'];
+                $this->emit($report, 'DELETE', $relative, null);
+            } catch (Throwable $e) {
+                ++$stats['failed'];
+                $stats['errors'][] = ['relative_path' => $relative, 'error' => $e->getMessage()];
+                $this->emit($report, 'FAIL', $relative, $e->getMessage());
+            }
+        }
     }
 
     private function emit(?callable $report, string $event, string $relative, ?string $error): void

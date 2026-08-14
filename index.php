@@ -35,6 +35,43 @@ $requestMethod = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 $requestPath = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
 $syncOnShutdown = false;
 
+// External API deletes historically remove the files row immediately. Create a
+// durable SQLite delete queue before the request reaches App so the DELETE
+// trigger records the wp/... path even if the Replica is temporarily offline.
+// A later re-upload of the same path is detected by PeerReconciler and cancels
+// the stale queued delete rather than deleting the new Replica object.
+if ($requestMethod === 'POST'
+    && $requestPath === '/api/external/delete'
+    && is_file($configFile)
+    && is_file(__DIR__ . '/data/app.sqlite')) {
+    $queueConfig = json_decode((string)file_get_contents($configFile), true);
+    if (is_array($queueConfig) && ($queueConfig['role'] ?? '') === 'primary') {
+        try {
+            $queuePdo = new PDO('sqlite:' . __DIR__ . '/data/app.sqlite', null, null, [
+                PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+                PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+            ]);
+            $queuePdo->exec("CREATE TABLE IF NOT EXISTS peer_delete_queue (
+                relative_path TEXT PRIMARY KEY,
+                queued_at TEXT NOT NULL
+            )");
+            $queuePdo->exec("CREATE TRIGGER IF NOT EXISTS peer_queue_wp_file_delete
+                AFTER DELETE ON files
+                WHEN OLD.relative_path LIKE 'wp/%'
+                BEGIN
+                    INSERT OR REPLACE INTO peer_delete_queue(relative_path, queued_at)
+                    VALUES(OLD.relative_path, strftime('%Y-%m-%dT%H:%M:%fZ','now'));
+                END");
+        } catch (Throwable $e) {
+            error_log('CDN Drive could not prepare peer delete queue: ' . $e->getMessage());
+            http_response_code(500);
+            header('Content-Type: application/json; charset=utf-8');
+            echo json_encode(['ok' => false, 'error' => 'Could not prepare peer deletion tracking.']);
+            exit;
+        }
+    }
+}
+
 if ($requestMethod === 'POST') {
     $syncOnShutdown = in_array($requestPath, [
         '/api/upload',
@@ -43,6 +80,7 @@ if ($requestMethod === 'POST') {
         '/api/restore',
         '/api/maintenance/repair-paths',
         '/api/external/upload',
+        '/api/external/delete',
     ], true);
 
     // Chunked external uploads only change the origin/DB on the final chunk.
