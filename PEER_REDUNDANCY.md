@@ -29,6 +29,7 @@ Application metadata such as users, sessions, shares and settings remains author
 - `peer.php` - authenticated peer HTTP endpoint
 - `app/PeerNode.php` - peer protocol, HMAC authentication, chunk transfer and checksum verification
 - `app/PeerReconciler.php` - shared reconciliation logic
+- `peer-check.php` - CLI deployment/connectivity check
 - `peer-sync.php` - CLI reconciliation/repair command run on the primary node
 - `data/peer.example.json` - configuration example
 
@@ -81,6 +82,16 @@ Replica example:
 ```
 
 `data/peer.json` must not be publicly readable. Keep the existing `data/.htaccess` protection enabled.
+
+## Preflight check
+
+After configuring both nodes, run this on **both** servers:
+
+```bash
+php peer-check.php
+```
+
+It checks PHP 8.2+, cURL, PDO SQLite, writable `origin`/`data`, peer configuration, HTTPS usage, role validity and authenticated connectivity to the other node. Fix every `[NG]` result before enabling scheduled replication.
 
 ## Transfer protocol
 
