@@ -27,27 +27,65 @@ if (PHP_SAPI === 'cli-server') {
     }
 }
 
-$app = new CdnDrive\App(__DIR__);
-$app->run();
-
-// Best-effort near-real-time replication after mutating requests. The normal
-// response is flushed first on FastCGI where possible, and failures here never
-// change the user's successful application response. Scheduled peer-sync.php
+// API responses terminate through App::json(), which calls exit. Register the
+// replication callback before App::run() so successful mutating requests still
+// reconcile after the response has been produced. Scheduled peer-sync.php
 // remains the authoritative repair/retry mechanism.
-if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
-    $dbFile = __DIR__ . '/data/app.sqlite';
-    if (is_file($configFile) && is_file($dbFile)) {
-        $peerConfig = json_decode((string)file_get_contents($configFile), true);
-        if (is_array($peerConfig)
-            && ($peerConfig['role'] ?? '') === 'primary'
-            && !empty($peerConfig['sync_on_request'])) {
+$requestMethod = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+$requestPath = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
+$syncOnShutdown = false;
+
+if ($requestMethod === 'POST') {
+    $syncOnShutdown = in_array($requestPath, [
+        '/api/upload',
+        '/api/copy',
+        '/api/delete',
+        '/api/restore',
+        '/api/maintenance/repair-paths',
+        '/api/external/upload',
+    ], true);
+
+    // Chunked external uploads only change the origin/DB on the final chunk.
+    if ($requestPath === '/api/external/upload-chunk') {
+        $chunkIndex = (int)($_POST['chunk_index'] ?? -1);
+        $totalChunks = (int)($_POST['total_chunks'] ?? 0);
+        $syncOnShutdown = $totalChunks > 0 && ($chunkIndex + 1) === $totalChunks;
+    }
+}
+
+if ($syncOnShutdown && is_file($configFile)) {
+    $peerConfig = json_decode((string)file_get_contents($configFile), true);
+    if (is_array($peerConfig)
+        && ($peerConfig['role'] ?? '') === 'primary'
+        && !empty($peerConfig['sync_on_request'])) {
+        register_shutdown_function(static function () use ($configFile): void {
+            $status = http_response_code();
+            if (is_int($status) && $status >= 400) {
+                return;
+            }
+
+            // Send the application response before doing best-effort peer I/O.
             if (function_exists('fastcgi_finish_request')) {
                 @fastcgi_finish_request();
             }
+
             try {
+                $dbFile = __DIR__ . '/data/app.sqlite';
+                if (!is_file($configFile) || !is_file($dbFile)) {
+                    return;
+                }
+
+                $config = json_decode((string)file_get_contents($configFile), true);
+                if (!is_array($config)
+                    || ($config['role'] ?? '') !== 'primary'
+                    || empty($config['sync_on_request'])) {
+                    return;
+                }
+
                 require_once __DIR__ . '/app/PeerNode.php';
                 require_once __DIR__ . '/app/PeerReconciler.php';
-                $limit = max(1, min(1000, (int)($peerConfig['sync_recent_limit'] ?? 100)));
+
+                $limit = max(1, min(1000, (int)($config['sync_recent_limit'] ?? 100)));
                 $reconciler = new CdnDrive\PeerReconciler(__DIR__);
                 $stats = $reconciler->reconcileRecent($limit);
                 if (($stats['failed'] ?? 0) > 0) {
@@ -56,6 +94,9 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
             } catch (Throwable $e) {
                 error_log('CDN Drive peer replication failed: ' . $e->getMessage());
             }
-        }
+        });
     }
 }
+
+$app = new CdnDrive\App(__DIR__);
+$app->run();
