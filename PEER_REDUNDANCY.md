@@ -29,13 +29,22 @@ Application metadata such as users, sessions, shares and settings remains author
 - `peer.php` - authenticated peer HTTP endpoint
 - `app/PeerNode.php` - peer protocol, HMAC authentication, chunk transfer and checksum verification
 - `app/PeerReconciler.php` - shared reconciliation logic
+- `peer-setup.php` - interactive CLI setup for `data/peer.json`
 - `peer-check.php` - CLI deployment/connectivity check
 - `peer-sync.php` - CLI reconciliation/repair command run on the primary node
 - `data/peer.example.json` - configuration example
 
 ## Configure both servers
 
-Copy the example on both nodes:
+The easiest method is the interactive setup command:
+
+```bash
+php peer-setup.php
+```
+
+Run it once on each node. Set one node to `primary` and the other to `replica`. Use the same shared secret on both nodes. The command creates `data/peer.json`, backs up an existing config before replacing it, and applies restrictive file permissions where supported.
+
+You may also configure manually by copying the example:
 
 ```bash
 cp data/peer.example.json data/peer.json
@@ -81,7 +90,7 @@ Replica example:
 }
 ```
 
-`data/peer.json` must not be publicly readable. Keep the existing `data/.htaccess` protection enabled.
+`data/peer.json` must not be publicly readable. Keep the existing `data/.htaccess` protection enabled. It is also ignored by Git so the shared secret is not accidentally committed.
 
 ## Preflight check
 
