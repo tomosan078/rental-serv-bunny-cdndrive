@@ -35,6 +35,14 @@ $requestMethod = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 $requestPath = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
 $syncOnShutdown = false;
 
+// API data is dynamic and must not be reused from a browser/proxy cache. The UI
+// reloads /api/items after mutations; stale cached JSON can otherwise leave a
+// deleted or newly uploaded item visible until a full page reload.
+if (str_starts_with($requestPath, '/api/')) {
+    header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+    header('Pragma: no-cache');
+}
+
 // External API deletes historically remove the files row immediately. Create a
 // durable SQLite delete queue before the request reaches App so the DELETE
 // trigger records the wp/... path even if the Replica is temporarily offline.
