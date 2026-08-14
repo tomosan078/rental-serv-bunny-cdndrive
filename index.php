@@ -102,6 +102,13 @@ if ($syncOnShutdown && is_file($configFile)) {
                 return;
             }
 
+            // Release the file-backed PHP session before peer network I/O.
+            // Otherwise subsequent browser requests using the same session
+            // cookie can block on the session-file lock until sync finishes.
+            if (session_status() === PHP_SESSION_ACTIVE) {
+                @session_write_close();
+            }
+
             // Send the application response before doing best-effort peer I/O.
             if (function_exists('fastcgi_finish_request')) {
                 @fastcgi_finish_request();
