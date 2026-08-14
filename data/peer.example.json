@@ -1,0 +1,6 @@
+{
+  "node_name": "origin-a",
+  "role": "primary",
+  "peer_url": "https://origin-b.example.com",
+  "shared_secret": "replace-with-a-long-random-secret"
+}
