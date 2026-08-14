@@ -424,12 +424,38 @@ final class PeerNode
     private function safeRelative(string $path): string
     {
         $path = ltrim(str_replace('\\', '/', $path), '/');
-        if ($path === '' || str_contains($path, '../') || str_contains($path, '/..') || str_contains($path, "\0")) {
+
+        if (
+            $path === ''
+            || str_contains($path, "\0")
+            || str_contains($path, '../')
+            || str_contains($path, '/..')
+        ) {
             throw new RuntimeException('Invalid relative path.');
         }
-        if (!preg_match('#^objects/[A-Za-z0-9._/-]+$#', $path)) {
-            throw new RuntimeException('Path is outside the replicated object namespace.');
+
+        if (
+            !str_starts_with($path, 'objects/')
+            && !str_starts_with($path, 'wp/')
+        ) {
+            throw new RuntimeException('Path is outside the replicated object namespaces.');
         }
+
+        if (preg_match('/[\x00-\x1F\x7F?#]/u', $path)) {
+            throw new RuntimeException('Path contains invalid characters.');
+        }
+
+        foreach (explode('/', $path) as $segment) {
+            if (
+                $segment === ''
+                || $segment === '.'
+                || $segment === '..'
+                || str_starts_with(strtolower($segment), '.ht')
+            ) {
+                throw new RuntimeException('Path contains invalid segments.');
+            }
+        }
+
         return $path;
     }
 
