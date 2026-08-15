@@ -49,30 +49,29 @@ $recoveryThreshold = clampInt($config['recovery_threshold'] ?? 5, 1, 50);
 $cooldown = clampInt($config['cooldown_seconds'] ?? 300, 30, 86400);
 $now = time();
 
+// The authenticated peer API is useful diagnostic information, but it is not
+// authoritative for Bunny failover. A PHP/firewall/peer.php problem must not
+// move CDN traffic away from a Primary whose public static origin still works.
 try {
     $peer = new PeerNode($root);
     $health = $peer->health();
     $peerOk = !empty($health['ok']);
 } catch (Throwable $e) {
     $peerOk = false;
-    $state['last_error'] = $e->getMessage();
+    $state['last_peer_error'] = $e->getMessage();
 }
 
 if ($peerOk) {
-    $state['consecutive_successes'] = ((int)($state['consecutive_successes'] ?? 0)) + 1;
-    $state['consecutive_failures'] = 0;
     $state['last_peer_ok_at'] = gmdate(DATE_ATOM);
-    $state['last_error'] = null;
-    echo "[OK] Peer health check succeeded.\n";
+    $state['last_peer_error'] = null;
+    echo "[OK] Peer API health check succeeded.\n";
 } else {
-    $state['consecutive_failures'] = ((int)($state['consecutive_failures'] ?? 0)) + 1;
-    $state['consecutive_successes'] = 0;
     $state['last_peer_failure_at'] = gmdate(DATE_ATOM);
-    echo "[WARN] Peer health check failed ({$state['consecutive_failures']}/{$failureThreshold}).\n";
+    echo "[WARN] Peer API health check failed; public origin health remains authoritative.\n";
 }
 
-// Primary only monitors the replica and records warnings. The replica is the
-// only node allowed to change the Bunny Pull Zone origin.
+// Primary only records peer diagnostics. The replica is the only node allowed
+// to make Bunny failover/failback decisions.
 if ($role !== 'replica') {
     saveState($stateFile, $state);
     exit(0);
@@ -90,11 +89,27 @@ if ($primaryOrigin === '' || $secondaryOrigin === '' || !ctype_digit($pullZoneId
     exit(1);
 }
 
+$primaryHealthUrl = $primaryOrigin . $healthPath;
+$primaryPublicOk = httpHealthy($primaryHealthUrl);
+
+if ($primaryPublicOk) {
+    $state['consecutive_successes'] = ((int)($state['consecutive_successes'] ?? 0)) + 1;
+    $state['consecutive_failures'] = 0;
+    $state['last_primary_public_ok_at'] = gmdate(DATE_ATOM);
+    $state['last_error'] = null;
+    echo "[OK] Primary public origin health check succeeded.\n";
+} else {
+    $state['consecutive_failures'] = ((int)($state['consecutive_failures'] ?? 0)) + 1;
+    $state['consecutive_successes'] = 0;
+    $state['last_primary_public_failure_at'] = gmdate(DATE_ATOM);
+    echo "[WARN] Primary public origin health check failed ({$state['consecutive_failures']}/{$failureThreshold}).\n";
+}
+
 $lastSwitch = (int)($state['last_switch_unix'] ?? 0);
 $cooldownReady = ($now - $lastSwitch) >= $cooldown;
 
 try {
-    if (!$peerOk && (int)$state['consecutive_failures'] >= $failureThreshold) {
+    if (!$primaryPublicOk && (int)$state['consecutive_failures'] >= $failureThreshold) {
         if (!$cooldownReady) {
             echo "[HOLD] Failover threshold reached, but switch cooldown is active.\n";
         } else {
@@ -116,14 +131,10 @@ try {
                 echo "[SWITCH] Bunny origin changed to Secondary: {$secondaryOrigin}\n";
             }
         }
-    } elseif ($peerOk && (int)$state['consecutive_successes'] >= $recoveryThreshold) {
+    } elseif ($primaryPublicOk && (int)$state['consecutive_successes'] >= $recoveryThreshold) {
         if (!$cooldownReady) {
             echo "[HOLD] Recovery threshold reached, but switch cooldown is active.\n";
         } else {
-            if (!httpHealthy($primaryOrigin . $healthPath)) {
-                throw new RuntimeException('Primary peer health recovered, but public origin health check still fails; refusing failback.');
-            }
-
             $current = normalizeOrigin((string)(bunnyRequest($apiKey, $pullZoneId, 'GET')['OriginUrl'] ?? ''));
             $state['last_bunny_origin'] = $current;
 
