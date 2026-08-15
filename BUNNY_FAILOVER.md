@@ -1,13 +1,14 @@
 # Bunny API origin failover
 
-This optional layer keeps BunnyCDN pointed at a Primary origin during normal operation and lets the Replica switch Bunny to itself when the Primary is repeatedly unreachable. It does not require Bunny Edge Scripting.
+This optional layer keeps BunnyCDN pointed at a Primary origin during normal operation and lets the Replica switch Bunny to itself when the Primary public origin is repeatedly unreachable. It does not require Bunny Edge Scripting.
 
 ## Recommended two-node design
 
 - **Primary**: authoritative application/database node and normal Bunny origin.
 - **Replica**: replicated origin-file node, Primary health monitor, and the **only** node allowed to change Bunny `OriginUrl`.
-- The Replica uses the existing authenticated `peer.php?action=health` endpoint to decide whether the Primary is reachable.
-- A small public `origin-health.txt` file is checked before Bunny is switched to either origin.
+- The Replica uses the public static `origin-health.txt` endpoint as the authoritative signal for failover and failback.
+- The authenticated `peer.php?action=health` endpoint is still checked for diagnostics, but a peer/PHP/firewall failure alone does **not** trigger Bunny failover while the public Primary origin remains healthy.
+- The Secondary public health file is checked before Bunny is switched to the Replica.
 - `peer-sync.php` remains responsible for file reconciliation. The failover controller only changes the Bunny Pull Zone origin.
 
 Keeping the switch authority on one node avoids the Primary and Replica racing to overwrite Bunny during a network partition. A Primary-side failover cron is not required for this design.
@@ -18,12 +19,14 @@ The controller will only change Bunny when the current `OriginUrl` exactly match
 
 Default behavior:
 
-- fail over after 3 consecutive Primary failures;
-- fail back after 5 consecutive Primary successes;
+- fail over after 3 consecutive **Primary public origin** failures;
+- fail back after 5 consecutive **Primary public origin** successes;
 - wait at least 300 seconds between origin switches;
 - confirm the Secondary public health file before failover;
-- confirm the Primary public health file before failback;
+- keep peer API health as diagnostic-only information;
 - use a lock file so overlapping cron runs cannot race.
+
+This separation is important: `peer.php` depends on PHP, peer authentication, and related routing/firewall rules, while Bunny serves static origin content. If only the peer API is unavailable but `origin-health.txt` still returns a healthy response, the controller holds the Primary origin instead of performing a false failover.
 
 ## Configuration
 
@@ -52,7 +55,7 @@ Example:
 
 `primary_origin` and `secondary_origin` must match the Bunny Pull Zone `OriginUrl` values **exactly**. If your Bunny origin points at an `/origin` directory, include `/origin` in both values.
 
-`secondary_health_path` is a **path relative to each configured origin**, not a full URL. With the example above the controller checks:
+`secondary_health_path` is retained for configuration compatibility and is used as the health path relative to **both** configured origins. With the example above the controller checks:
 
 ```text
 https://primary.example.com/origin/origin-health.txt
@@ -78,7 +81,16 @@ php peer-failover.php
 Normal output while the Primary is healthy resembles:
 
 ```text
-[OK] Peer health check succeeded.
+[OK] Peer API health check succeeded.
+[OK] Primary public origin health check succeeded.
+[HOLD] Bunny is already using the Primary origin.
+```
+
+If the peer API is unavailable but the static origin is still healthy, output resembles:
+
+```text
+[WARN] Peer API health check failed; public origin health remains authoritative.
+[OK] Primary public origin health check succeeded.
 [HOLD] Bunny is already using the Primary origin.
 ```
 
@@ -86,7 +98,7 @@ Runtime counters and the last switch are stored in `data/failover-state.json`.
 
 ## Cron
 
-A one-minute interval works with the default thresholds. With three consecutive failures, a failover decision normally occurs after roughly three cron runs plus network/API time.
+A one-minute interval works with the default thresholds. With three consecutive public-origin failures, a failover decision normally occurs after roughly three cron runs plus network/API time.
 
 Only the Replica needs the production failover cron:
 
@@ -106,12 +118,14 @@ Confirm the selected CLI binary provides the extensions used by the application,
 
 1. Confirm Bunny currently points to `primary_origin`.
 2. Confirm both origin-relative health URLs return HTTP 200.
-3. Temporarily make the Primary peer endpoint unavailable using a reversible method.
-4. Do not run the failover script manually; let cron reach `failure_threshold`.
-5. Confirm the Replica log reports `[SWITCH]` and Bunny `OriginUrl` becomes `secondary_origin`.
-6. Restore the Primary peer endpoint.
-7. Let cron reach `recovery_threshold` and wait for `cooldown_seconds` if necessary.
-8. Confirm the log reports `[SWITCH]` back to `primary_origin`.
+3. Temporarily make only the Primary peer endpoint unavailable using a reversible method.
+4. Let cron run past `failure_threshold` and confirm Bunny **does not** switch while the Primary static health URL remains HTTP 200.
+5. Restore the Primary peer endpoint.
+6. Simulate a failure of the Primary public health URL using a reversible method that does not expose credentials or destroy data.
+7. Let cron reach `failure_threshold` and confirm the Replica log reports `[SWITCH]` and Bunny `OriginUrl` becomes `secondary_origin`.
+8. Restore the Primary public health URL.
+9. Let cron reach `recovery_threshold` and wait for `cooldown_seconds` if necessary.
+10. Confirm the log reports `[SWITCH]` back to `primary_origin`.
 
 Useful log command:
 
